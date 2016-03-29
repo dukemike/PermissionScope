@@ -21,6 +21,8 @@
 
 Inspired by (but unrelated to) [Periscope](https://www.periscope.tv)'s permission control, PermissionScope is a Swift framework for intelligently requesting permissions from users. **It contains not only a simple UI to request permissions but also a unified permissions API** that can tell you the status of any given system permission or easily request them.
 
+This fork re-adds partial support for HealthKit permissions.
+
 Some examples of multiple permissions requests, a single permission and the denied alert.
 
 <p align="center">
