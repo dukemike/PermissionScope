@@ -22,6 +22,7 @@ enum Constants {
         static let requestedBluetooth            = "PS_requestedBluetooth"
         static let requestedMotion               = "PS_requestedMotion"
         static let requestedNotifications        = "PS_requestedNotifications"
+        static let requestedHealthKit            = "PS_requestedHealthKit"
     }
     
     struct InfoPlistKeys {

@@ -16,6 +16,7 @@ import CoreBluetooth
 import CoreMotion
 import CloudKit
 import Accounts
+import HealthKit
 
 /**
 *  Protocol for permission configurations.
@@ -28,9 +29,23 @@ import Accounts
 @objc public class NotificationsPermission: NSObject, Permission {
     public let type: PermissionType = .Notifications
     public let notificationCategories: Set<UIUserNotificationCategory>?
-    
+
     public init(notificationCategories: Set<UIUserNotificationCategory>? = nil) {
         self.notificationCategories = notificationCategories
+    }
+}
+
+@objc public class HealthPermissionConfig: NSObject, Permission {
+    public let type: PermissionType = .HealthKit
+    public let message: String
+    public let healthTypesToShare: Set<HKSampleType>?
+    public let healthTypesToRead: Set<HKObjectType>?
+
+    public init(message: String, healthTypesToShare: Set<HKSampleType>?,
+                healthTypesToRead: Set<HKObjectType>?) {
+        self.healthTypesToShare = healthTypesToShare
+        self.healthTypesToRead = healthTypesToRead
+        self.message = message
     }
 }
 

@@ -15,6 +15,7 @@ import EventKit
 import CoreBluetooth
 import CoreMotion
 import Contacts
+import HealthKit
 
 public typealias statusRequestClosure = (status: PermissionStatus) -> Void
 public typealias authClosureType      = (finished: Bool, results: [PermissionResult]) -> Void
@@ -164,7 +165,7 @@ typealias resultsForConfigClosure     = ([PermissionResult]) -> Void
         baseView.frame = view.frame
         baseView.addSubview(contentView)
         if backgroundTapCancels {
-            let tap = UITapGestureRecognizer(target: self, action: Selector("cancel"))
+            let tap = UITapGestureRecognizer(target: self, action: #selector(PermissionScope.cancel))
             tap.delegate = self
             baseView.addGestureRecognizer(tap)
         }
@@ -193,7 +194,7 @@ typealias resultsForConfigClosure     = ([PermissionResult]) -> Void
         
         // close button
         closeButton.setTitle("Close".localized, forState: .Normal)
-        closeButton.addTarget(self, action: Selector("cancel"), forControlEvents: UIControlEvents.TouchUpInside)
+        closeButton.addTarget(self, action: #selector(PermissionScope.cancel), forControlEvents: UIControlEvents.TouchUpInside)
         
         contentView.addSubview(closeButton)
         
@@ -283,7 +284,7 @@ typealias resultsForConfigClosure     = ([PermissionResult]) -> Void
                     label.frame.offsetInPlace(dx: -self.contentView.frame.origin.x, dy: -self.contentView.frame.origin.y)
                     label.frame.offsetInPlace(dx: 0, dy: -((dialogHeight/2)-205) + CGFloat(index * baseOffset))
                     
-                    index++
+                    index += 1
             })
         }
     }
@@ -569,7 +570,7 @@ typealias resultsForConfigClosure     = ([PermissionResult]) -> Void
             name: UIApplicationWillResignActiveNotification,
             object: nil)
         NSNotificationCenter.defaultCenter().addObserver(self,
-            selector: Selector("finishedShowingNotificationPermission"),
+            selector: #selector(PermissionScope.finishedShowingNotificationPermission),
             name: UIApplicationDidBecomeActiveNotification, object: nil)
         notificationTimer?.invalidate()
     }
@@ -627,9 +628,9 @@ typealias resultsForConfigClosure     = ([PermissionResult]) -> Void
                 .first { $0 is NotificationsPermission } as? NotificationsPermission
             let notificationsPermissionSet = notificationsPermission?.notificationCategories
 
-            NSNotificationCenter.defaultCenter().addObserver(self, selector: Selector("showingNotificationPermission"), name: UIApplicationWillResignActiveNotification, object: nil)
+            NSNotificationCenter.defaultCenter().addObserver(self, selector: #selector(PermissionScope.showingNotificationPermission), name: UIApplicationWillResignActiveNotification, object: nil)
             
-            notificationTimer = NSTimer.scheduledTimerWithTimeInterval(1, target: self, selector: Selector("finishedShowingNotificationPermission"), userInfo: nil, repeats: false)
+            notificationTimer = NSTimer.scheduledTimerWithTimeInterval(1, target: self, selector: #selector(PermissionScope.finishedShowingNotificationPermission), userInfo: nil, repeats: false)
             
             UIApplication.sharedApplication().registerUserNotificationSettings(
                 UIUserNotificationSettings(forTypes: [.Alert, .Sound, .Badge],
@@ -978,7 +979,73 @@ typealias resultsForConfigClosure     = ([PermissionResult]) -> Void
     
     /// Returns whether PermissionScope is waiting for the user to enable/disable motion access or not.
     private var waitingForMotion = false
+
+    // MARK: HealthKit
     
+    private var askedHealthKit:Bool {
+        get {
+            return defaults.boolForKey(Constants.NSUserDefaultsKeys.requestedHealthKit)
+        }
+        set {
+            defaults.setBool(newValue, forKey: Constants.NSUserDefaultsKeys.requestedHealthKit)
+            defaults.synchronize()
+        }
+    }
+
+    public func statusHealthKit(typesToShare: Set<HKSampleType>?, typesToRead: Set<HKObjectType>?) -> PermissionStatus {
+        guard HKHealthStore.isHealthDataAvailable() else { return .Disabled }
+
+        
+        var statusArray:[HKAuthorizationStatus] = []
+        typesToShare?.forEach({ (elem) -> () in
+            statusArray.append(HKHealthStore().authorizationStatusForType(elem))
+        })
+        typesToRead?.forEach({ (elem) -> () in
+            statusArray.append(HKHealthStore().authorizationStatusForType(elem))
+        })
+
+//        print(statusArray)
+
+        // TODO: What to do? If there's 1 .Denied or ND then return such result ?
+        // Only Auth if they are all Auth ?
+        let typesAuthorized = statusArray
+        .filter { $0 == .SharingAuthorized }
+        let typesDenied = statusArray
+        .filter { $0 == .SharingDenied }
+        let typesNotDetermined = statusArray
+        .filter { $0 == .NotDetermined }
+
+        if !typesNotDetermined.isEmpty || statusArray.isEmpty {
+            return .Unknown
+        } else if !typesDenied.isEmpty {
+            return .Unauthorized
+        } else {
+            return .Authorized
+        }
+    }
+
+    func requestHealthKit() {
+        guard let healthPermission = self.configuredPermissions
+        .first({ $0.type == .HealthKit }) as? HealthPermissionConfig else { return }
+
+        switch statusHealthKit(healthPermission.healthTypesToShare, typesToRead: healthPermission.healthTypesToRead) {
+        case .Unknown:
+            HKHealthStore().requestAuthorizationToShareTypes(healthPermission.healthTypesToShare,
+                    readTypes: healthPermission.healthTypesToRead,
+                    completion: { (granted, error) -> Void in
+                        print("requestAuthorizationToShareTypes: ", granted, " - error: ", error)
+                        self.askedHealthKit = granted
+                        self.detectAndCallback()
+                    })
+        case .Unauthorized:
+            self.showDeniedAlert(.HealthKit)
+        case .Disabled:
+            self.showDisabledAlert(.HealthKit)
+        default:
+            break
+        }
+    }
+
     // MARK: - UI
     
     /**
@@ -1142,7 +1209,7 @@ typealias resultsForConfigClosure     = ([PermissionResult]) -> Void
         alert.addAction(UIAlertAction(title: "Show me".localized,
             style: .Default,
             handler: { action in
-                NSNotificationCenter.defaultCenter().addObserver(self, selector: Selector("appForegroundedAfterSettings"), name: UIApplicationDidBecomeActiveNotification, object: nil)
+                NSNotificationCenter.defaultCenter().addObserver(self, selector: #selector(PermissionScope.appForegroundedAfterSettings), name: UIApplicationDidBecomeActiveNotification, object: nil)
                 
                 let settingsUrl = NSURL(string: UIApplicationOpenSettingsURLString)
                 UIApplication.sharedApplication().openURL(settingsUrl!)
@@ -1176,7 +1243,7 @@ typealias resultsForConfigClosure     = ([PermissionResult]) -> Void
         alert.addAction(UIAlertAction(title: "Show me".localized,
             style: .Default,
             handler: { action in
-                NSNotificationCenter.defaultCenter().addObserver(self, selector: Selector("appForegroundedAfterSettings"), name: UIApplicationDidBecomeActiveNotification, object: nil)
+                NSNotificationCenter.defaultCenter().addObserver(self, selector: #selector(PermissionScope.appForegroundedAfterSettings), name: UIApplicationDidBecomeActiveNotification, object: nil)
                 
                 let settingsUrl = NSURL(string: UIApplicationOpenSettingsURLString)
                 UIApplication.sharedApplication().openURL(settingsUrl!)
@@ -1234,6 +1301,19 @@ typealias resultsForConfigClosure     = ([PermissionResult]) -> Void
             permissionStatus = statusBluetooth()
         case .Motion:
             permissionStatus = statusMotion()
+        case .HealthKit:
+            var typesToShare:Set<HKSampleType>?
+            var typesToRead:Set<HKObjectType>?
+            
+            for config in configuredPermissions {
+                if config.type == .HealthKit {
+                    let healthConfig: HealthPermissionConfig = config as! HealthPermissionConfig
+                    typesToRead = healthConfig.healthTypesToRead
+                    typesToShare = healthConfig.healthTypesToShare
+                    break
+                }
+            }
+            permissionStatus = statusHealthKit(typesToShare, typesToRead: typesToRead)
         }
         
         // Perform completion
